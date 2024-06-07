@@ -1,0 +1,173 @@
+---
+title: "Final Project KM"
+output: html_document
+date: "2024-06-06"
+---
+
+```{r}
+# Import Packages 
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(pROC)
+library(caret)
+```
+
+### EDA 
+
+```{r}
+osteo_df <- as.data.frame(osteoporosis)
+head(osteo_df)
+```
+
+```{r}
+# Structure of Dataset 
+str(osteo_df)
+```
+
+```{r}
+# Change character variables to factors 
+osteo_df <- osteo_df |>
+  mutate_if(is.character, as.factor)
+```
+
+
+```{r}
+# Change outcome variable to factor
+osteo_df$Osteoporosis <- as.factor(osteo_df$Osteoporosis)
+```
+
+```{r}
+# Structure of Dataset after Mutate
+str(osteo_df)
+```
+
+```{r}
+tail(osteo_df)
+```
+
+
+```{r}
+# Missing Data - There is no missing data 
+colSums(is.na(osteo_df))
+```
+
+
+```{r}
+# Summary of Age Column (Integer)
+summary(osteo_df$Age)
+```
+```{r}
+ggplot(osteo_df, aes(x = Age)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Age", x = "Age", y = "Frequency") +
+  theme_minimal()
+```
+
+
+```{r}
+# Frequency for Categorical Variables (as Factors) 
+df_long <- osteo_df |>
+    pivot_longer(!c(Id, Age), names_to = "Variable", values_to = "Value")
+
+# Create the plot
+ggplot(df_long, aes(x = Value, fill = Variable)) + 
+  geom_bar(show.legend = FALSE) + 
+  facet_wrap(~ Variable, scales = "free", ncol = 4) + 
+  labs(title = "Frequency of Categorical Variables", x = "Category", y = "Frequency") +
+  theme_minimal()
+
+```
+```{r}
+# Checking for duplicates
+duplicated_rows <- duplicated(osteo_df)
+
+# Number of duplicate rows
+num_duplicates <- sum(duplicated_rows)
+
+# Print duplicate rows
+duplicate_rows <- osteo_df[duplicated_rows, ]
+duplicate_rows
+```
+
+```{r}
+# Check for Correlation with categorical variables and outcome variables 
+cols_to_analyze <- setdiff(names(osteo_df), c("Age", "Id", "Osteoporosis"))
+
+# Perform chi-square test for each column
+results <- lapply(cols_to_analyze, function(col) {
+  chisq_test <- chisq.test(table(osteo_df[[col]], osteo_df$Osteoporosis))
+  return(chisq_test)
+})
+
+# Print the results
+for (i in seq_along(cols_to_analyze)) {
+  cat("Chi-square test for", cols_to_analyze[i], ":\n")
+  print(results[[i]])
+  cat("\n")
+}
+
+```
+
+
+### PreProcessing 
+
+
+```{r}
+predictors <- osteo_df[, -16]
+response <- osteo_df[, 16]
+```
+
+```{r}
+# Split the data into training and test sets
+osteo_index <- createDataPartition(response, p = 0.8, list = FALSE)
+```
+
+```{r}
+predictors_train <- osteo_predictors[osteo_index, ]
+predictors_test <- osteo_predictors[-osteo_index, ]
+yield_train <- osteo_yield[osteo_index ]
+yield_test <- osteo_yield[-osteo_index ]
+```
+
+
+### Modeling 
+
+```{r}
+# Fit logistic regression model
+model <- glm(Osteoporosis ~ . - Id, data = osteo_df, family = binomial)
+
+# Summary of the model
+summary(model)
+
+# Predict probabilities
+predicted_probs <- predict(model, osteo_df, type = "response")
+
+# Convert probabilities to binary outcomes
+predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+
+# Confusion Matrix
+confusion_matrix <- table(Predicted = predicted_classes, Actual = osteo_df$Osteoporosis)
+print(confusion_matrix)
+
+# Calculate accuracy
+accuracy <- mean(predicted_classes == osteo_df$Osteoporosis)
+print(paste("Accuracy:", accuracy))
+
+# ROC curve and AUC
+roc_obj <- roc(osteo_df$Osteoporosis, predicted_probs)
+plot(roc_obj)
+auc_value <- auc(roc_obj)
+print(paste("AUC:", auc_value))
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
