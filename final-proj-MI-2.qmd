@@ -1,0 +1,173 @@
+---
+title: "Final Project2"
+author: "Marinela Inguito"
+format: 
+    html: 
+        toc: true
+    pdf: default
+editor: visual
+---
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(caret)
+library(GGally)
+library(pROC)
+library(mlbench)
+library(ggplot2)
+library(patchwork)
+library(corrplot)
+library(MASS)
+library(RANN) 
+library(nnet) 
+library(class)
+library(e1071)
+library(kernlab)
+library(gt)
+library(randomForest)
+library(earth)
+library(tibble)
+library(dplyr)
+library(AppliedPredictiveModeling)
+library(readr)
+# Set ggplot
+theme_set(theme_minimal())
+```
+
+```{r}
+# Load the dataset
+osteo_df <- read_csv("osteoporosis.csv", show_col_types = FALSE)
+```
+
+```{r}
+print((osteo_df))
+```
+
+```{r}
+# Display the data types of each column
+data_types <- sapply(osteo_df, class)
+for (col_name in names(data_types)) {
+  cat(paste(col_name, ":", data_types[col_name], "\n"))
+}
+```
+
+```{r}
+# Print the data frame
+colSums(is.na(osteo_df))
+```
+
+```{r}
+str(osteo_df)
+```
+
+```{r}
+predictors <- osteo_df[, 2:(ncol(osteo_df) -1)]
+response <- osteo_df$Osteoporosis
+
+predictors <- data.frame(lapply(predictors, function(x) if(is.factor(x) || is.character(x)) as.numeric(as.factor(x)) else x))
+
+# Replace the predictors in the original data frame
+osteo_df[, 2:(ncol(osteo_df) - 1)] <- predictors
+
+osteo_df$Osteoporosis <- as.factor(osteo_df$Osteoporosis)
+
+# Convert Osteoporosis values 1 and 0 to Yes and No
+osteo_df <- osteo_df %>%
+  mutate(Osteoporosis = ifelse(Osteoporosis == 1, "Yes", "No"))
+
+# Verify the structure again
+str(osteo_df)
+```
+
+```{r}
+set.seed(123)
+# Define target and predictors
+predictors <- osteo_df[, 2:(ncol(osteo_df) -1)]
+response <- osteo_df$Osteoporosis
+
+# Split the data into training and test sets
+osteo_index <- createDataPartition(response, p = 0.8, list = FALSE)
+predictors_train <- predictors[osteo_index, ]
+predictors_test <- predictors[-osteo_index, ]
+yield_train <- response[osteo_index]
+yield_test <- response[-osteo_index]
+```
+
+```{r}
+levels(yield_train) <- make.names(levels(yield_train))
+
+ctrl <- trainControl(
+  method = "cv",          # Cross-validation
+  number = 10,            # Number of folds
+  classProbs = TRUE,      # Compute class probabilities
+  summaryFunction = twoClassSummary  # For ROC metric
+)
+```
+
+```{r warning=FALSE, message=FALSE}
+# Set seed for reproducibility
+set.seed(123)
+# Train Linear Discriminant Analysis Model
+lda_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "lda",
+    metric = "ROC",
+    preProcess = c("center", "scale", "pca"),
+    trControl = ctrl)
+lda_model
+```
+
+```{r}
+ldaCM <- confusionMatrix(lda_model, norm = "none")
+ldaCM
+```
+
+```{r}
+## Plot the ROC curve for the hold-out set
+ldaRoc <- roc(response = lda_model$pred$obs,
+        predictor = lda_model$pred$Yes,
+        levels = rev(levels(lda_model$pred$obs)))
+```
+
+```{r}
+#  Convert variables to factor
+osteo_df$Osteoporosis <- as.factor(osteo_df$Osteoporosis)
+osteo_df <- osteo_df |>
+  mutate_if(is.character, as.factor)
+
+# View the encoded data frame
+str(osteo_df)
+```
+
+```{r}
+summary(osteo_df$Osteoporosis)
+```
+
+```{r}
+set.seed(123)
+# Train Logistic Regression Model
+log_model <- train(
+    x = predictors_train,
+    y = yield_train,
+    method = "glm",
+    metric = "ROC",
+    trControl = ctrl
+)
+log_model
+```
+
+```{r}
+logCM <- confusionMatrix(log_model, norm = "none")
+logCM
+```
+
+```{r}
+## Plot the ROC curve for the hold-out set
+logRoc <- roc(response = log_model$pred$obs,
+predictor = log_model$pred$Yes,
+levels = rev(levels(log_model$pred$obs)))
+```
+
+```{r}
+
+```
