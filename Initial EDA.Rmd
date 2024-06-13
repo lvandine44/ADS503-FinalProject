@@ -1,0 +1,201 @@
+---
+title: "Final Project KM"
+output: html_document
+date: "2024-06-06"
+---
+
+```{r warning=FALSE, message=FALSE}
+# Import Packages 
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(pROC)
+library(caret)
+library(knitr)
+```
+
+```{r}
+library(readr)
+osteoporosis <- read_csv("C:/Users/lvand/OneDrive/Desktop/osteoporosis.csv")
+View(osteoporosis)
+```
+
+### EDA 
+
+```{r}
+osteo_df <- as.data.frame(osteoporosis)
+head(osteo_df)
+```
+
+```{r}
+# Using sapply to get data types
+data_types <- sapply(osteo_df, class)
+
+# Convert to a dataframe or tibble for better readability
+data_types_table <- data.frame(
+  DataType = data_types
+)
+
+# Print the table
+print(data_types_table)
+```
+
+```{r}
+# Change character variables to factors 
+osteo_df <- osteo_df |>
+  mutate_if(is.character, as.factor)
+```
+
+
+```{r}
+# Change outcome variable to factor
+# osteo_df$Osteoporosis <- as.factor(osteo_df$Osteoporosis)
+```
+
+```{r}
+# Using sapply to get data types
+data_types <- sapply(osteo_df, class)
+
+# Convert to a dataframe or tibble for better readability
+data_types_table2 <- data.frame(
+  DataType = data_types
+)
+
+# Print the table
+print(data_types_table2)
+```
+
+```{r}
+tail(osteo_df)
+```
+
+```{r warning=FALSE, message=FALSE}
+# Get frequency counts for each character column
+frequency_counts <- osteo_df %>%
+  select_if(is.factor) %>%
+  gather(key = "variable", value = "value") %>%
+  group_by(variable, value) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  arrange(variable, desc(count))
+
+# Print the frequency counts table using kable
+frequency_counts %>%
+  kable()
+```
+
+
+```{r}
+# Missing Data
+missing_values <- colSums(is.na(osteo_df))
+
+# Convert the named vector to a tibble for better readability
+missing_values_table <- tibble(
+  Column = names(missing_values),
+  MissingValues = missing_values
+)
+
+# Print the table
+print(missing_values_table)
+```
+
+
+```{r}
+# Summary of Age Column (Integer)
+summary(osteo_df$Age)
+```
+```{r}
+ggplot(osteo_df, aes(x = Age)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Age", x = "Age", y = "Frequency") +
+  theme_minimal()
+```
+
+
+```{r warning=FALSE, message=FALSE}
+# Distribution of Categorical Variables (factors)
+
+# Reshape the data to long format
+ost_long <- tidyr::gather(osteo_df, key = "variable", value = "response")
+
+# Specify variables to include in the plot
+variables_include <- c("Alcohol Consumption", "Body Weight", "Calcium Intake", "Family History", "Gender", "Hormonal Changes", "Medical Conditions", "Medications", "Physical Activity", "Prior Fractures", "Race/Ethnicity", "Smoking", "Vitamin D Intake", "Osteoporosis")
+
+# Plot the barplots with specific variables
+ggplot(ost_long[ost_long$variable %in% variables_include, ], aes(x = response)) +
+  geom_bar() +
+  facet_wrap(~ variable, scales = "free", nrow = 5) +
+  labs(x = "Response", y = "Count") +
+  theme_minimal()
+
+```
+```{r}
+# Identify duplicate rows
+duplicated_rows <- duplicated(osteo_df) | duplicated(osteo_df, fromLast = TRUE)
+
+# Extract duplicate rows
+duplicate_rows <- osteo_df[duplicated_rows, ]
+
+# Check and print duplicates or a message if there are none
+if (nrow(duplicate_rows) > 0) {
+  print("Duplicate rows:")
+  print(duplicate_rows)
+} else {
+  print("No duplicate rows.")
+}
+```
+
+```{r}
+# Check for Correlation with categorical variables and outcome variables 
+cols_to_analyze <- setdiff(names(osteo_df), c("Age", "Id", "Osteoporosis"))
+
+# Perform chi-square test for each column and collect results
+results <- lapply(cols_to_analyze, function(col) {
+  chisq_test <- chisq.test(table(osteo_df[[col]], osteo_df$Osteoporosis))
+  return(data.frame(
+    variable = col,
+    p_value = chisq_test$p.value,
+    chi_squared = chisq_test$statistic,
+    df = chisq_test$parameter
+  ))
+})
+
+# Combine results into a single data frame
+chi_results_df <- do.call(rbind, results)
+
+# Print the results table using kable
+chi_results_df %>%
+  kable()
+
+```
+
+
+### PreProcessing 
+
+```{r}
+# Split the data into training and test sets
+set.seed(123)
+osteo_index <- createDataPartition(response, p = 0.8, list = FALSE)
+
+# Split the data
+ostTrain <- osteoporosis[osteo_index,]
+ostTest <- osteoporosis[-osteo_index,]
+
+# Define the pre-processing method
+preProcValues <- preProcess(ostTrain, method = c("center", "scale"))
+```
+
+
+### Modeling 
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
