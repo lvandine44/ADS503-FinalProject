@@ -114,60 +114,276 @@ for (i in seq_along(cols_to_analyze)) {
 
 
 ```{r}
-predictors <- osteo_df[, -16]
-response <- osteo_df[, 16]
+predictors <- osteo_df[, 2:(ncol(osteo_df) - 1)]
+response <- osteo_df[, ncol(osteo_df)]
 ```
 
 ```{r}
+set.seed(503)
 # Split the data into training and test sets
 osteo_index <- createDataPartition(response, p = 0.8, list = FALSE)
 ```
 
 ```{r}
-predictors_train <- osteo_predictors[osteo_index, ]
-predictors_test <- osteo_predictors[-osteo_index, ]
-yield_train <- osteo_yield[osteo_index ]
-yield_test <- osteo_yield[-osteo_index ]
+
+predictors_train <- predictors[osteo_index, ]
+predictors_test <- predictors[-osteo_index, ]
+yield_train <- response[osteo_index ]
+yield_test <- response[-osteo_index ]
 ```
 
+```{r}
+# Change factors to numeric for LDA 
+predictors_train <- data.frame(lapply(predictors_train, function(x) {
+  if (is.factor(x)) as.numeric(x) else x
+}))
+```
+
+```{r}
+# Change factors to numeric for LDA 
+predictors_test <- data.frame(lapply(predictors_test, function(x) {
+  if (is.factor(x)) as.numeric(x) else x
+}))
+```
+
+```{r}
+# Check for missing data 
+sum(is.na(predictors_train)) 
+```
+```{r}
+# Check for missing data 
+sum(is.na(predictors_test)) 
+```
 
 ### Modeling 
 
 ```{r}
+levels(yield_train) <- make.names(levels(yield_train))
+levels(yield_test) <- make.names(levels(yield_test))
+
+ctrl <- trainControl(method = "cv", 
+                    summaryFunction = twoClassSummary,
+                    classProbs = TRUE,
+                    savePredictions = TRUE)
+```
+
+
+
+```{r}
+set.seed(503)
 # Fit logistic regression model
-model <- glm(Osteoporosis ~ . - Id, data = osteo_df, family = binomial)
+log_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "glm",
+    preProcess = c("center", "scale"),
+    metric = "ROC",
+    trControl = ctrl)
 
 # Summary of the model
-summary(model)
+summary(log_model)
+```
 
-# Predict probabilities
-predicted_probs <- predict(model, osteo_df, type = "response")
+```{r}
+Log_CM <- confusionMatrix(log_model, norm = "none")
+Log_CM
+```
+```{r}
+Log_predictions <- predict(log_model, newdata = predictors_test, type = "prob")
+Log_probs <- Log_predictions[, "X1"]
+```
 
-# Convert probabilities to binary outcomes
-predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
 
-# Confusion Matrix
-confusion_matrix <- table(Predicted = predicted_classes, Actual = osteo_df$Osteoporosis)
-print(confusion_matrix)
+```{r}
+roc_obj_log <- roc(yield_test, Log_probs)
 
-# Calculate accuracy
-accuracy <- mean(predicted_classes == osteo_df$Osteoporosis)
-print(paste("Accuracy:", accuracy))
+# Plot the ROC curve
+plot(roc_obj_log, main = "ROC Curve for Log Model")
 
-# ROC curve and AUC
-roc_obj <- roc(osteo_df$Osteoporosis, predicted_probs)
-plot(roc_obj)
-auc_value <- auc(roc_obj)
-print(paste("AUC:", auc_value))
+# Add AUC to the plot
+auc(roc_obj_log)
+```
+
+
+
+```{r}
+#LDA 
+set.seed(503)
+LDA_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "lda",
+    metric = "ROC",
+    preProcess = c("center", "scale"),
+    trControl = ctrl)
+```
+
+
+```{r}
+LDA_CM <- confusionMatrix(LDA_model, norm = "none")
+LDA_CM
+```
+```{r}
+LDA_predictions <- predict(LDA_model, newdata = predictors_test, type = "prob")
+LDA_probs <- LDA_predictions[, "X1"]
+```
+
+
+```{r}
+LDA_roc_obj <- roc(yield_test, LDA_probs)
+
+# Plot the ROC curve
+plot(LDA_roc_obj, main = "ROC Curve for LDA Model")
+
+# Add AUC to the plot
+auc(LDA_roc_obj)
+```
+
+
+```{r}
+# Penalized Model 
+glmnGrid <- expand.grid(alpha = c(0, .1, .2, .4, .6, .8, 1),
+lambda = seq(.01, .2, length = 10))
+
+set.seed(503)
+
+Penalized_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "glmnet",
+    tuneGrid = glmnGrid,
+    metric = "ROC",
+    trControl = ctrl)
+```
+
+
+```{r}
+Penalized_CM <- confusionMatrix(Penalized_model, norm = "none")
+Penalized_CM
+```
+```{r}
+penalized_predictions <- predict(Penalized_model, newdata = predictors_test, type = "prob")
+penalized_probs <- penalized_predictions[, "X1"]
+```
+
+
+```{r}
+penalized_roc_obj <- roc(yield_test, penalized_probs)
+
+# Plot the ROC curve
+plot(penalized_roc_obj, main = "ROC Curve for Penalized Model")
+
+# Add AUC to the plot
+auc(penalized_roc_obj)
+```
+
+
+
+
+```{r}
+# Nearest Shrunken Centroid
+set.seed(503)
+nsc_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "pam",
+    preProc = c("center", "scale"),
+    tuneGrid = data.frame(threshold = seq(0, 25, length = 30)),
+    metric = "ROC",
+    trControl = ctrl)
+
+```
+```{r}
+nsc_CM <- confusionMatrix(nsc_model, norm = "none")
+nsc_CM
+```
+```{r}
+nsc_predictions <- predict(nsc_model, newdata = predictors_test, type = "prob")
+nsc_probs <- nsc_predictions[, "X1"]
+```
+
+```{r}
+nsc_roc_obj <- roc(yield_test, nsc_probs)
+
+# Plot the ROC curve
+plot(nsc_roc_obj, main = "ROC Curve for Nsc Model")
+
+# Add AUC to the plot
+auc(nsc_roc_obj)
+```
+
+
+```{r} 
+# Neural Net
+set.seed(503)
+nn_grid <- expand.grid(decay = c(0, 0.01, 0.1), size = 1:10)
+
+neuralnet <- train(x = predictors_train,
+                       y = yield_train,
+                       method = "nnet",
+                       tuneGrid =  nn_grid,
+                       preProc = c("center", "scale"),
+                       trControl = ctrl,  
+                       metric = "ROC",
+                       linout = FALSE, trace = FALSE, maxit = 500)
+```
+
+```{r}
+neural_CM <- confusionMatrix(neuralnet, norm = "none")
+neural_CM
+```
+
+```{r}
+neuralnet
+```
+
+
+```{r}
+net_predictions <- predict(neuralnet, newdata = predictors_test, type = "prob")
+net_probs <- net_predictions[, "X1"]
+```
+
+
+```{r}
+net_roc_obj <- roc(yield_test, net_probs)
+
+# Plot the ROC curve
+plot(net_roc_obj, main = "ROC Curve for Neural Net Model")
+
+# Add AUC to the plot
+auc(net_roc_obj)
+```
+
+
+```{r}
+# SVM model
+svm_grid <- expand.grid(sigma = c(0.01, 0.1, 1), 
+                        C = c(0.1, 1, 10))
+
+set.seed(503)
+
+svm <- train(x = predictors_train,
+                   y = yield_train,
+                   method = "svmRadial", 
+                   preProc = c("center", "scale"),
+                   trControl = ctrl,  
+                   metric = "ROC",
+                   tuneGrid = svm_grid)
 
 
 ```
 
 ```{r}
-
+svm_predictions <- predict(svm, newdata = predictors_test, type = "prob")
+svm_probs <- svm_predictions[, "X1"]
 ```
+
 
 ```{r}
+svm_roc_obj <- roc(yield_test, svm_probs)
 
+# Plot the ROC curve
+plot(svm_roc_obj, main = "ROC Curve for SVM Model")
+
+# Add AUC to the plot
+auc(svm_roc_obj)
 ```
+
+
 
