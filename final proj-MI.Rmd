@@ -636,11 +636,11 @@ par(mar = c(5, 4, 4, 8) + 0.1)
 plot(roc_obj_log, type = "s", col = 'red', legacy.axes = TRUE)
 plot(LDA_roc_obj, type = "s", add = TRUE, col = 'green', legacy.axes = TRUE)
 plot(penalized_roc_obj, type = "s", add = TRUE, col = 'blue', legacy.axes = TRUE)
+plot(nsc_roc_obj, type = "s", add = TRUE, col = 'lightblue', legacy.axes = TRUE)
+plot(svm_roc_obj, type = "s", add = TRUE, col = 'orange', legacy.axes = TRUE)
 
 #  Non-linear regression Models
-plot(nsc_roc_obj, type = "s", add = TRUE, col = 'lightblue', legacy.axes = TRUE)
 plot(net_roc_obj, type = "s", col = 'cyan', legacy.axes = TRUE)
-plot(svm_roc_obj, type = "s", add = TRUE, col = 'orange', legacy.axes = TRUE)
 plot(mda_roc_obj, type = "s", add = TRUE, col = 'darkblue', legacy.axes = TRUE)
 plot(SHLnnet_roc_obj, type = "s", add = TRUE, col = 'violet', legacy.axes = TRUE)
 plot(knn_roc_obj, type = "s", add = TRUE, col = 'darkgreen', legacy.axes = TRUE)
