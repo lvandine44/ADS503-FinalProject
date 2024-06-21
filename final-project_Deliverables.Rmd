@@ -2,6 +2,25 @@
 title: "Final Project MI"
 output: html_document
 date: "2024-06-20"
+format:
+  html:
+    toc: true
+  pdf:
+    keep-tex: true
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+include-before-body:
+  text: |
+    \RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaksymbolleft={},
+      breaklines
+      % Note: setting commandchars=\\\{\} here will cause an error
+    }
+editor: visual
 ---
 
 ```{r warning=FALSE, message=FALSE}
@@ -16,14 +35,15 @@ library(knitr)
 library(sjPlot)
 library(sjmisc)
 library(broom)
+library(readr)
 ```
 
 ### EDA
 
 ```{r warning=FALSE, message=FALSE}
-library(readr)
-osteo_df <- read_csv("C:/Users/lvand/OneDrive/Desktop/osteoporosis.csv")
-View(osteo_df)
+osteo_df <- read.csv("C:/Users/katie/OneDrive/osteoporosis.csv")
+head(osteo_df)
+# View(osteo_df)
 ```
 
 ```{r}
@@ -92,6 +112,14 @@ ggplot(osteo_df, aes(x = Age)) +
   labs(title = "Distribution of Age", x = "Age", y = "Frequency") +
   theme_minimal()
 ```
+```{r}
+ggplot(osteo_df, aes(y = Age)) +
+  geom_boxplot(fill = "skyblue", color = "black", outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(title = "Boxplot of Age", y = "Age") +
+  theme_minimal()
+```
+
+
 ```{r warning=FALSE, message=FALSE}
 # Get frequency counts for each character column
 frequency_counts <- osteo_df %>%
@@ -291,6 +319,12 @@ ggplot(tidy_model, aes(x = reorder(term, estimate), y = estimate)) +
   labs(x = "Predictors", y = "Odds Ratio") +
   geom_text(aes(label = round(estimate, 2)), hjust = -0.2, vjust = 0.5)
 ```
+
+
+```{r}
+kable(tidy_model, caption = "Logistic Regression Model Results", digits = 3)
+```
+
 
 
 ```{r}
