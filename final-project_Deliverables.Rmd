@@ -1,0 +1,771 @@
+---
+title: "Final Project MI"
+output: html_document
+date: "2024-06-20"
+---
+
+```{r warning=FALSE, message=FALSE}
+# Import Packages 
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(pROC)
+library(caret)
+library(gbm)
+library(knitr)
+library(sjPlot)
+library(sjmisc)
+library(broom)
+```
+
+### EDA
+
+```{r warning=FALSE, message=FALSE}
+library(readr)
+osteo_df <- read_csv("C:/Users/lvand/OneDrive/Desktop/osteoporosis.csv")
+View(osteo_df)
+```
+
+```{r}
+# Using sapply to get data types
+data_types <- sapply(osteo_df, class)
+
+# Convert to a dataframe or tibble for better readability
+data_types_table <- data.frame(
+  DataType = data_types
+)
+
+# Print the table
+print(data_types_table)
+```
+
+```{r}
+# Change character variables to factors 
+osteo_df <- osteo_df |>
+  mutate_if(is.character, as.factor)
+```
+
+```{r}
+# Change outcome variable to factor
+osteo_df$Osteoporosis <- as.factor(osteo_df$Osteoporosis)
+```
+
+```{r}
+# Using sapply to confirm data types after factors
+data_types <- sapply(osteo_df, class)
+
+# Convert to a dataframe or tibble 
+data_types_table2 <- data.frame(
+  DataType = data_types
+)
+
+# Print the table
+print(data_types_table2)
+```
+
+```{r}
+tail(osteo_df)
+```
+
+```{r}
+# Missing Data
+missing_values <- colSums(is.na(osteo_df))
+
+# Convert the named vector to a tibble for better readability
+missing_values_table <- tibble(
+  Column = names(missing_values),
+  MissingValues = missing_values
+)
+
+# Print the table
+print(missing_values_table)
+```
+
+```{r}
+# Summary of Age Column (Integer)
+summary(osteo_df$Age)
+```
+
+```{r}
+ggplot(osteo_df, aes(x = Age)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Age", x = "Age", y = "Frequency") +
+  theme_minimal()
+```
+```{r warning=FALSE, message=FALSE}
+# Get frequency counts for each character column
+frequency_counts <- osteo_df %>%
+  select_if(is.factor) %>%
+  gather(key = "variable", value = "value") %>%
+  group_by(variable, value) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  arrange(variable, desc(count))
+
+# Print the frequency counts table using kable
+frequency_counts %>%
+  kable()
+```
+
+```{r warning=FALSE, message=FALSE}
+# Distribution of Categorical Variables (factors)
+
+# Reshape the data to long format
+ost_long <- tidyr::gather(osteo_df, key = "variable", value = "response")
+
+# Specify variables to include in the plot
+variables_include <- c("Alcohol Consumption", "Body Weight", "Calcium Intake", "Family History", "Gender", "Hormonal Changes", "Medical Conditions", "Medications", "Physical Activity", "Prior Fractures", "Race/Ethnicity", "Smoking", "Vitamin D Intake", "Osteoporosis")
+
+# Plot the barplots with specific variables
+ggplot(ost_long[ost_long$variable %in% variables_include, ], aes(x = response)) +
+  geom_bar() +
+  facet_wrap(~ variable, scales = "free", nrow = 5) +
+  labs(x = "Response", y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+# Identify duplicate rows
+duplicated_rows <- duplicated(osteo_df) | duplicated(osteo_df, fromLast = TRUE)
+
+# Extract duplicate rows
+duplicate_rows <- osteo_df[duplicated_rows, ]
+
+# Check and print duplicates or a message if there are none
+if (nrow(duplicate_rows) > 0) {
+  print("Duplicate rows:")
+  print(duplicate_rows)
+} else {
+  print("No duplicate rows.")
+}
+```
+
+```{r}
+# Check for Correlation with categorical variables and outcome variables 
+cols_to_analyze <- setdiff(names(osteo_df), c("Age", "Id", "Osteoporosis"))
+
+# Perform chi-square test for each column and collect results
+results <- lapply(cols_to_analyze, function(col) {
+  chisq_test <- chisq.test(table(osteo_df[[col]], osteo_df$Osteoporosis))
+  return(data.frame(
+    variable = col,
+    p_value = chisq_test$p.value,
+    chi_squared = chisq_test$statistic,
+    df = chisq_test$parameter
+  ))
+})
+
+# Combine results into a single data frame
+chi_results_df <- do.call(rbind, results)
+
+# Print the results table using kable
+chi_results_df %>%
+  kable()
+
+```
+
+### PreProcessing
+
+```{r}
+predictors <- osteo_df[, 2:(ncol(osteo_df) - 1)]
+response <- osteo_df[, ncol(osteo_df)]
+```
+
+```{r}
+set.seed(503)
+# Split the data into training and test sets
+osteo_index <- createDataPartition(response, p = 0.8, list = FALSE)
+```
+
+```{r}
+
+predictors_train <- predictors[osteo_index, ]
+predictors_test <- predictors[-osteo_index, ]
+yield_train <- response[osteo_index ]
+yield_test <- response[-osteo_index ]
+```
+
+```{r}
+# Change factors to numeric for LDA 
+predictors_train <- data.frame(lapply(predictors_train, function(x) {
+  if (is.factor(x)) as.numeric(x) else x
+}))
+```
+
+```{r}
+# Change factors to numeric for LDA 
+predictors_test <- data.frame(lapply(predictors_test, function(x) {
+  if (is.factor(x)) as.numeric(x) else x
+}))
+```
+
+```{r}
+# Check for missing data 
+sum(is.na(predictors_train)) 
+```
+
+```{r}
+# Check for missing data 
+sum(is.na(predictors_test)) 
+```
+
+### Modeling
+
+```{r}
+levels(yield_train) <- make.names(levels(yield_train))
+levels(yield_test) <- make.names(levels(yield_test))
+
+ctrl <- trainControl(method = "cv", 
+                    summaryFunction = twoClassSummary,
+                    classProbs = TRUE,
+                    savePredictions = TRUE)
+```
+
+```{r}
+set.seed(503)
+# Fit logistic regression model
+log_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "glm",
+    preProcess = c("center", "scale"),
+    metric = "ROC",
+    trControl = ctrl)
+
+# Summary of the model
+summary(log_model)
+```
+
+```{r}
+Log_CM <- confusionMatrix(log_model, norm = "none")
+Log_CM
+```
+
+```{r}
+Log_predictions <- predict(log_model, newdata = predictors_test, type = "prob")
+Log_probs <- Log_predictions[, "X1"]
+```
+
+```{r}
+roc_obj_log <- roc(yield_test, Log_probs)
+
+# Plot the ROC curve
+plot(roc_obj_log, main = "ROC Curve for Log Model")
+
+# Add AUC to the plot
+auc(roc_obj_log)
+```
+
+```{r}
+LogImp <- varImp(log_model, scale = FALSE)
+plot(LogImp)
+```
+
+
+```{r}
+set.seed(503)
+
+# Fit logistic regression model
+log_model <- train(
+  x = predictors_train,
+  y = yield_train,
+  method = "glm",
+  preProcess = c("center", "scale"),
+  metric = "ROC",
+  trControl = ctrl
+)
+
+# Extract the final model from the train object
+final_model <- log_model$finalModel
+
+# Tidy the model output
+tidy_model <- tidy(final_model, exponentiate = TRUE, conf.int = TRUE)
+
+# Plot the odds ratios of each predictor
+ggplot(tidy_model, aes(x = reorder(term, estimate), y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
+  coord_flip() +
+  ggtitle("Odds Ratios of Predictors") +
+  theme_minimal() +
+  labs(x = "Predictors", y = "Odds Ratio") +
+  geom_text(aes(label = round(estimate, 2)), hjust = -0.2, vjust = 0.5)
+```
+
+
+```{r}
+#LDA 
+set.seed(503)
+LDA_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "lda",
+    metric = "ROC",
+    preProcess = c("center", "scale"),
+    trControl = ctrl)
+```
+
+```{r}
+LDA_CM <- confusionMatrix(LDA_model, norm = "none")
+LDA_CM
+```
+
+```{r}
+LDA_predictions <- predict(LDA_model, newdata = predictors_test, type = "prob")
+LDA_probs <- LDA_predictions[, "X1"]
+```
+
+```{r}
+LDA_roc_obj <- roc(yield_test, LDA_probs)
+
+# Plot the ROC curve
+plot(LDA_roc_obj, main = "ROC Curve for LDA Model")
+
+# Add AUC to the plot
+auc(LDA_roc_obj)
+```
+
+```{r}
+LDAImp <- varImp(LDA_model, scale = FALSE)
+plot(LDAImp)
+```
+
+```{r}
+# Penalized Model 
+glmnGrid <- expand.grid(alpha = c(0, .1, .2, .4, .6, .8, 1),
+lambda = seq(.01, .2, length = 10))
+
+set.seed(503)
+
+Penalized_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "glmnet",
+    tuneGrid = glmnGrid,
+    metric = "ROC",
+    trControl = ctrl)
+```
+
+```{r}
+Penalized_CM <- confusionMatrix(Penalized_model, norm = "none")
+Penalized_CM
+```
+
+```{r}
+penalized_predictions <- predict(Penalized_model, newdata = predictors_test, type = "prob")
+penalized_probs <- penalized_predictions[, "X1"]
+```
+
+```{r}
+penalized_roc_obj <- roc(yield_test, penalized_probs)
+
+# Plot the ROC curve
+plot(penalized_roc_obj, main = "ROC Curve for Penalized Model")
+
+# Add AUC to the plot
+auc(penalized_roc_obj)
+```
+
+```{r}
+# No importance run for Penalized model; model's focus is on coefficients and their magnitudes rather than providing a ranking or importance score for each feature.
+```
+
+```{r}
+# Nearest Shrunken Centroid
+set.seed(503)
+nsc_model <- train(x = predictors_train,
+    y = yield_train,
+    method = "pam",
+    preProc = c("center", "scale"),
+    tuneGrid = data.frame(threshold = seq(0, 25, length = 30)),
+    metric = "ROC",
+    trControl = ctrl)
+
+```
+
+```{r}
+nsc_CM <- confusionMatrix(nsc_model, norm = "none")
+nsc_CM
+```
+
+```{r}
+nsc_predictions <- predict(nsc_model, newdata = predictors_test, type = "prob")
+nsc_probs <- nsc_predictions[, "X1"]
+```
+
+```{r}
+nsc_roc_obj <- roc(yield_test, nsc_probs)
+
+# Plot the ROC curve
+plot(nsc_roc_obj, main = "ROC Curve for Nsc Model")
+
+# Add AUC to the plot
+auc(nsc_roc_obj)
+```
+
+```{r}
+# No importance run for NSC, has no direct measure of variable importance; model is more concerned with the classification decision boundaries than with the contribution of individual features.
+```
+
+```{r}
+# Neural Net
+set.seed(503)
+nn_grid <- expand.grid(decay = c(0, 0.01, 0.1), size = 1:10)
+
+neuralnet <- train(x = predictors_train,
+                       y = yield_train,
+                       method = "nnet",
+                       tuneGrid =  nn_grid,
+                       preProc = c("center", "scale"),
+                       trControl = ctrl,  
+                       metric = "ROC",
+                       linout = FALSE, trace = FALSE, maxit = 500)
+```
+
+```{r}
+neural_CM <- confusionMatrix(neuralnet, norm = "none")
+neural_CM
+```
+
+```{r}
+neuralnet
+```
+
+```{r}
+net_predictions <- predict(neuralnet, newdata = predictors_test, type = "prob")
+net_probs <- net_predictions[, "X1"]
+```
+
+```{r}
+net_roc_obj <- roc(yield_test, net_probs)
+
+# Plot the ROC curve
+plot(net_roc_obj, main = "ROC Curve for Neural Net Model")
+
+# Add AUC to the plot
+auc(net_roc_obj)
+```
+
+```{r}
+nnetImp <- varImp(neuralnet, scale = FALSE)
+plot(nnetImp)
+```
+
+```{r}
+# SVM model
+svm_grid <- expand.grid(sigma = c(0.01, 0.1, 1), 
+                        C = c(0.1, 1, 10))
+
+set.seed(503)
+
+svm <- train(x = predictors_train,
+                   y = yield_train,
+                   method = "svmRadial", 
+                   preProc = c("center", "scale"),
+                   trControl = ctrl,  
+                   metric = "ROC",
+                   tuneGrid = svm_grid)
+
+```
+
+```{r}
+svm_CM <- confusionMatrix(svm, norm = "none")
+svm_CM
+```
+
+```{r}
+svm_predictions <- predict(svm, newdata = predictors_test, type = "prob")
+svm_probs <- svm_predictions[, "X1"]
+```
+
+```{r}
+svm_roc_obj <- roc(yield_test, svm_probs)
+
+# Plot the ROC curve
+plot(svm_roc_obj, main = "ROC Curve for SVM Model")
+
+# Add AUC to the plot
+auc(svm_roc_obj)
+```
+
+```{r}
+svmImp <- varImp(svm, scale = FALSE)
+plot(svmImp)
+```
+
+```{r}
+# Mixture Discriminant Analysis
+
+set.seed(503)
+
+mda <- train(x = predictors_train,
+               y = yield_train,
+               method = "mda",
+               tuneGrid = expand.grid(subclasses=1:3),
+               metric = "ROC",
+               trControl = ctrl)
+
+```
+
+```{r}
+mda_CM <- confusionMatrix(mda, norm = "none")
+mda_CM
+```
+
+```{r}
+mda
+```
+
+```{r}
+mda_predictions <- predict(mda, newdata = predictors_test, type = "prob")
+mda_probs <- mda_predictions[, "X1"]
+```
+
+```{r}
+mda_roc_obj <- roc(yield_test, mda_probs)
+
+# Plot the ROC curve
+plot(mda_roc_obj, main = "ROC Curve for mda Model")
+
+# Add AUC to the plot
+auc(mda_roc_obj)
+```
+
+```{r}
+mdaImp <- varImp(mda, scale = FALSE)
+plot(mdaImp)
+```
+
+```{r}
+# Single Hidden Layer Neural Network
+
+set.seed(503)
+
+nnetGrid <- expand.grid(size=1:3, decay=c(0,0.1,0.2,0.3,0.4,0.5,1,2))
+
+SHLnnet <- train(x = predictors_train,
+                y = yield_train,
+                method = "nnet",
+                tuneGrid = nnetGrid,
+                metric = "ROC",
+                trace = FALSE, 
+                maxit = 2000, 
+                trControl = ctrl)
+```
+
+```{r}
+SHLnnet_CM <- confusionMatrix(SHLnnet, norm = "none")
+SHLnnet_CM
+```
+
+```{r}
+SHLnnet
+```
+
+```{r}
+SHLnnet_predictions <- predict(SHLnnet, newdata = predictors_test, type = "prob")
+SHLnnet_probs <- SHLnnet_predictions[, "X1"]
+```
+
+```{r}
+SHLnnet_roc_obj <- roc(yield_test, SHLnnet_probs)
+
+# Plot the ROC curve
+plot(SHLnnet_roc_obj, main = "ROC Curve for SLH NNet Model")
+
+# Add AUC to the plot
+auc(SHLnnet_roc_obj)
+```
+
+```{r}
+SHLnnetImp <- varImp(SHLnnet, scale = FALSE)
+plot(SHLnnetImp)
+```
+
+```{r}
+# K-Nearest neighbors
+
+set.seed(503)
+
+knn <- train(x = predictors_train,
+                y = yield_train,
+                method = "knn",
+                tuneLength = 20,
+                metric = "ROC",
+                trControl = ctrl)
+```
+
+```{r}
+knn_CM <- confusionMatrix(knn, norm = "none")
+knn_CM
+```
+
+```{r}
+knn
+```
+
+```{r}
+knn_predictions <- predict(knn, newdata = predictors_test, type = "prob")
+knn_probs <- knn_predictions[, "X1"]
+```
+
+```{r}
+knn_roc_obj <- roc(yield_test, knn_probs)
+
+# Plot the ROC curve
+plot(knn_roc_obj, main = "ROC Curve for K-NNB Model")
+
+# Add AUC to the plot
+auc(knn_roc_obj)
+```
+
+```{r}
+knnImp <- varImp(knn, scale = FALSE)
+plot(knnImp)
+```
+
+```{r}
+# Stochiastic Gradient Boosting
+
+gbmGrid <- expand.grid(interaction.depth = c(1, 3, 5, 7, 9),
+                       n.trees = (1:20)*100,
+                       shrinkage = c(.01, .1),
+                       n.minobsinnode = 5)
+
+set.seed(503)
+
+SGboost <- train(x = predictors_train,
+                y = yield_train,
+                method = "gbm",
+                tuneGrid = gbmGrid,
+                verbose = FALSE,
+                metric = "ROC",
+                trControl = ctrl)
+```
+
+```{r}
+SGboost_CM <- confusionMatrix(SGboost, norm = "none")
+SGboost_CM
+```
+
+```{r}
+SGboost
+```
+
+```{r}
+SGboost_predictions <- predict(SGboost, newdata = predictors_test, type = "prob")
+SGboost_probs <- SHLnnet_predictions[, "X1"]
+```
+
+```{r}
+SGboost_roc_obj <- roc(yield_test, SGboost_probs)
+
+# Plot the ROC curve
+plot(SGboost_roc_obj, main = "ROC Curve for SG Boost Model")
+
+# Add AUC to the plot
+auc(SGboost_roc_obj)
+```
+
+```{r}
+SGboostImp <- varImp(SGboost, scale = FALSE)
+plot(SGboostImp)
+```
+
+```{r}
+# random forest
+
+set.seed(503)
+
+mtryGrid <- data.frame(mtry = floor(seq(10, ncol(predictors_train)/3, length = 10)))
+
+rf <- train(x = predictors_train,
+                y = yield_train,
+                method = "rf",
+                tuneGrid = mtryGrid,
+                ntree = 500,
+                importance = TRUE,
+                trControl = ctrl)
+```
+
+```{r}
+rf_CM <- confusionMatrix(rf, norm = "none")
+rf_CM
+```
+
+```{r}
+rf
+```
+
+```{r}
+rf_predictions <- predict(rf, newdata = predictors_test, type = "prob")
+rf_probs <- rf_predictions[, "X1"]
+```
+
+```{r}
+rf_roc_obj <- roc(yield_test, rf_probs)
+
+# Plot the ROC curve
+plot(rf_roc_obj, main = "ROC Curve for Random Forest Model")
+
+# Add AUC to the plot
+auc(rf_roc_obj)
+```
+
+```{r}
+rfImp <- varImp(rf, scale = FALSE)
+plot(rfImp)
+```
+
+```{r}
+### Compare Models using ROC curve
+
+# Set plot margins to make more space for the legend and title
+par(mar = c(5, 4, 4, 8) + 0.1)
+
+# Linear regression Models
+plot(roc_obj_log, type = "s", col = 'red', legacy.axes = TRUE)
+plot(LDA_roc_obj, type = "s", add = TRUE, col = 'green', legacy.axes = TRUE)
+plot(penalized_roc_obj, type = "s", add = TRUE, col = 'blue', legacy.axes = TRUE)
+plot(nsc_roc_obj, type = "s", add = TRUE, col = 'lightblue', legacy.axes = TRUE)
+
+#  Non-linear regression Models
+plot(svm_roc_obj, type = "s", add = TRUE, col = 'orange', legacy.axes = TRUE)
+plot(net_roc_obj, type = "s", col = 'cyan', legacy.axes = TRUE)
+plot(mda_roc_obj, type = "s", add = TRUE, col = 'darkblue', legacy.axes = TRUE)
+plot(SHLnnet_roc_obj, type = "s", add = TRUE, col = 'violet', legacy.axes = TRUE)
+plot(knn_roc_obj, type = "s", add = TRUE, col = 'darkgreen', legacy.axes = TRUE)
+plot(SGboost_roc_obj, type = "s", add = TRUE, col = 'purple',legacy.axes = TRUE)
+plot(rf_roc_obj, type = "s", add = TRUE, col = 'hotpink',legacy.axes = TRUE)
+
+# Add legend with smaller font
+legend("bottomright", legend = c("Logistic Regression", "Linear Discriminant Analysis",    "Penalized Regression", "Nearest Shrunken Centroid", "Neural Net", "Support Vector       Machine","Mixture Discriminant Analysis", "Single Hidden Layer Neural Net", 
+    "k-Nearest Neighbor", "SG Boost", "Random Forest"),col = c("red", "green", "blue",     "lightblue", "cyan", "orange", "darkblue", "violet", "darkgreen", "purple", "hotpink"     ), lwd = 2, cex = 0.7, inset = c(0.01, 0))
+
+# Add title with adjusted position
+title(main = "Compare ROC curves from different models", line = 3)
+```
+
+```{r}
+# AUC values pulled from ROC objects
+Log_auc <- auc(roc_obj_log)
+LDA_auc <- auc(LDA_roc_obj)
+penalized_auc  <- auc(penalized_roc_obj)
+nsc_auc  <- auc(nsc_roc_obj)
+net_auc  <- auc(net_roc_obj) 
+svm_auc  <- auc(svm_roc_obj)
+mda_auc  <- auc(mda_roc_obj)
+SHLnnet_auc  <- auc(SHLnnet_roc_obj)
+knn_auc  <- auc(knn_roc_obj)
+SGboost_auc  <- auc(SGboost_roc_obj)
+rf_auc  <- auc(rf_roc_obj)
+
+model_names = c("Logistic Regression", "Linear Discriminant Analysis", "Penalized Regression", "Nearest         Shrunken Centroid", "Neural Net", "Support Vector Machine", "Mixture Discriminant Analysis",           "Single Hidden Layer Neural Net", "k-Nearest Neighbor", "SG Boost", "Random Forest")
+
+summary_table <- data.frame(
+    Model = model_names, 
+    AUC = c(Log_auc, LDA_auc, penalized_auc, nsc_auc, net_auc, svm_auc, mda_auc, SHLnnet_auc, knn_auc,           SGboost_auc, rf_auc)
+)
+
+summary_table <- summary_table |>
+     arrange(desc(AUC))
+print(summary_table)
+```
