@@ -45,6 +45,7 @@ To use this project, first clone the repo on your device using the commands belo
 Predictive analysis of historical health records to determine if a patient is at risk of developing Osteoporosis.
 
 ### Problem Statement
+Use predictive modeling to better diagnose at-risk Osteoporosis patients based on known important predictors to have a better opportunity for early treatment and/or preventative treatment plans.
 
 
 ### Goals 
